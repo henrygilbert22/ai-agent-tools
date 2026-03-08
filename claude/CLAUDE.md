@@ -57,8 +57,11 @@ Use for: single file reads, status checks, running a command, searching for some
 Use for: "why isn't X working", "explore then fix", "review and propose changes", anything requiring back-and-forth or parallelization.
 
 - Can be 1 member or many depending on how work can be parallelized
-- Clean up each member via `shutdown_request` when their scope is done
 - Announce team creation, members, assignments, and final outcome in response text (Haiku appends to log)
+
+**Shutting down teams:** Never issue `shutdown_request` without first confirming with the user that the team's work is complete and they don't need to interact with it further.
+
+**Results handling:** When a team finishes, do NOT pull its full output into the main context automatically. Instead, notify the user ("Team X is done — want me to read the results, or leave it for later?") and wait for direction. Only load results when the user asks.
 
 **Never plan in main context.** When a task requires planning before execution, spawn an agent team to own the plan — one member plans, another reviews, they spawn subsequent subagents themselves. The orchestrator delegates the whole chain. A plan created in the orchestrator's context will be injected back every turn and pollute the main context window.
 
