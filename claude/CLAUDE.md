@@ -38,6 +38,8 @@ If any of these are needed → spawn a subagent or team.
 
 Use for: single file reads, status checks, running a command, searching for something, any task that returns a result in one pass.
 
+**Use an agent team member instead of a subagent for any multi-step sequential task** — i.e. anything with dependent phases, pipeline stages, or steps that must complete in order before the next begins. If a task involves running something, waiting for it, then acting on the result, that's a team member, not a subagent.
+
 - Always `run_in_background: true`
 - Announce in response text: ID, name, task, started UTC (Haiku appends to log)
 - On completion: announce outcome summary in response text
