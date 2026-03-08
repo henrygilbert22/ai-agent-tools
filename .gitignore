@@ -1,0 +1,7 @@
+# Never commit real settings (contains API keys)
+claude/settings.json
+# Session logs
+claude/session-logs/
+# Temp files
+*.lock
+*.tmp

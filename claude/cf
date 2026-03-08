@@ -1,0 +1,172 @@
+#!/bin/bash
+# Fork the current Claude Code session into a new terminal window/pane
+# macOS: iTerm2 > Terminal.app
+# Linux: tmux (new window) > gnome-terminal > xterm
+# Headless: runs in current terminal
+#
+# Usage:
+#   cf                           # fork current session into new window/pane
+#   cf will this work?           # fork + send a prompt (no quotes needed)
+#   cf -p what is a mutex        # headless — prints answer in current terminal
+
+set -e
+
+HEADLESS=false
+if [[ "$1" == "-p" ]]; then
+  HEADLESS=true
+  shift
+fi
+
+PROMPT="$*"
+CWD="$(pwd)"
+CLAUDE_JSON="$HOME/.claude.json"
+
+# Ensure the current directory is trusted in ~/.claude.json
+ensure_trusted() {
+  if [ ! -f "$CLAUDE_JSON" ]; then
+    echo '{"projects":{}}' > "$CLAUDE_JSON"
+  fi
+
+  if command -v jq &>/dev/null; then
+    TRUSTED=$(jq -r --arg p "$CWD" '.projects[$p].hasTrustDialogAccepted // false' "$CLAUDE_JSON" 2>/dev/null)
+    if [ "$TRUSTED" != "true" ]; then
+      jq --arg p "$CWD" '.projects[$p].hasTrustDialogAccepted = true' "$CLAUDE_JSON" > "${CLAUDE_JSON}.tmp" \
+        && mv "${CLAUDE_JSON}.tmp" "$CLAUDE_JSON"
+    fi
+  else
+    CLAUDE_JSON="$CLAUDE_JSON" CWD="$CWD" python3 -c "
+import json, os
+p = os.environ['CWD']
+claude_json = os.environ['CLAUDE_JSON']
+with open(claude_json, 'r') as f:
+    data = json.load(f)
+data.setdefault('projects', {}).setdefault(p, {})['hasTrustDialogAccepted'] = True
+with open(claude_json, 'w') as f:
+    json.dump(data, f, indent=2)
+" 2>/dev/null
+  fi
+}
+
+ensure_trusted
+
+# Build dynamic fork context from parent session log and transcript
+RECENT_LOG=$(ls -t "$HOME/.claude/session-logs/"*.md 2>/dev/null | head -1 || true)
+SESSION_CONTEXT=""
+if [ -n "$RECENT_LOG" ] && [ -f "$RECENT_LOG" ]; then
+  EVENT_LOG=$(awk '/^## Event Log/{found=1; next} found && /^## /{exit} found && /^\|/{print}' "$RECENT_LOG" | grep -v '^| Time' | grep -v '^|----' || true)
+  GOAL_ROW=$(echo "$EVENT_LOG" | awk -F'|' '$3 ~ /^[[:space:]]*GOAL_SET[[:space:]]*$/{line=$0} END{print line}' || true)
+  CURRENT_GOAL=$(echo "$GOAL_ROW" | awk -F'|' '{print $4}' | sed 's/ *| *Exit:.*//' | xargs || true)
+  LAST_10=$(echo "$EVENT_LOG" | tail -10 || true)
+  SESSION_CONTEXT="Parent session goal: ${CURRENT_GOAL}
+
+Recent session events (last 10):
+${LAST_10}"
+fi
+
+TRANSCRIPT_CONTEXT=""
+if [ -n "$RECENT_LOG" ]; then
+  SESSION_ID=$(basename "$RECENT_LOG" .md)
+  PROJECT_ENCODED=$(echo "$CWD" | sed 's|/|-|g')
+  TRANSCRIPT="$HOME/.claude/projects/${PROJECT_ENCODED}/${SESSION_ID}.jsonl"
+  if [ -f "$TRANSCRIPT" ]; then
+    TRANSCRIPT_CONTEXT=$(tail -n 100 "$TRANSCRIPT" 2>/dev/null | \
+      jq -r 'select(.type == "user" or .type == "assistant") |
+          if .type == "user" then
+              "USER: " + (if (.message.content | type) == "array"
+                  then [.message.content[] | select(.type == "text") | .text] | join(" ")
+                  else (.message.content // "") end)
+          else
+              "ASSISTANT: " + (if (.message.content | type) == "array"
+                  then [.message.content[] | select(.type == "text") | .text] | join(" ")
+                  else (.message.content // "") end)
+          end' 2>/dev/null | tail -n 20 | tail -c 4000 || true)
+  fi
+fi
+
+FORK_CONTEXT="You are branching off from a parent Claude session. You have your own independent context — the parent session continues separately.
+
+== Parent Session Context ==
+${SESSION_CONTEXT}
+
+== Recent Conversation History (last ~10 turns) ==
+${TRANSCRIPT_CONTEXT}"
+
+# Headless mode: run in current terminal, no new window needed
+if $HEADLESS; then
+  if [ -n "$PROMPT" ]; then
+    exec claude --model haiku \
+      --dangerously-skip-permissions --append-system-prompt "$FORK_CONTEXT" \
+      -p "$PROMPT"
+  else
+    echo "Usage: cf -p \"your question\""
+    exit 1
+  fi
+fi
+
+# Interactive mode: write a launcher script to avoid quoting hell
+LAUNCHER=$(mktemp /tmp/cf-launcher.XXXXXXXX)
+mv "$LAUNCHER" "${LAUNCHER}.sh"
+LAUNCHER="${LAUNCHER}.sh"
+
+{
+  echo '#!/bin/bash'
+  echo "cd $(printf '%q' "$CWD")"
+  if [ -n "$PROMPT" ]; then
+    echo "claude --model haiku --dangerously-skip-permissions --append-system-prompt $(printf '%q' "$FORK_CONTEXT") -p $(printf '%q' "$PROMPT")"
+  else
+    echo "claude --model haiku --dangerously-skip-permissions --append-system-prompt $(printf '%q' "$FORK_CONTEXT")"
+  fi
+  echo "rm -f $(printf '%q' "$LAUNCHER")"
+} > "$LAUNCHER"
+chmod +x "$LAUNCHER"
+
+open_macos() {
+  if osascript -e 'application "iTerm2" is running' 2>/dev/null | grep -q true; then
+    osascript <<APPLESCRIPT
+tell application "iTerm2"
+  create window with default profile
+  tell current session of current window
+    write text "$LAUNCHER"
+  end tell
+end tell
+APPLESCRIPT
+  else
+    osascript <<APPLESCRIPT
+tell application "Terminal"
+  do script "$LAUNCHER"
+  activate
+end tell
+APPLESCRIPT
+  fi
+}
+
+open_linux() {
+  # Prefer tmux if we're inside a tmux session
+  if [ -n "$TMUX" ]; then
+    tmux new-window -c "$CWD" "$LAUNCHER; exec bash"
+    return
+  fi
+  # Otherwise try GUI terminals
+  if command -v gnome-terminal &>/dev/null; then
+    gnome-terminal --working-directory="$CWD" -- bash -c "$LAUNCHER; exec bash"
+  elif command -v xfce4-terminal &>/dev/null; then
+    xfce4-terminal --working-directory="$CWD" -e "bash -c '$LAUNCHER; exec bash'"
+  elif command -v konsole &>/dev/null; then
+    konsole --workdir "$CWD" -e bash -c "$LAUNCHER; exec bash"
+  elif command -v xterm &>/dev/null; then
+    xterm -e "bash -c '$LAUNCHER; exec bash'"
+  # Last resort: try tmux even if we're not in a session
+  elif command -v tmux &>/dev/null; then
+    tmux new-window -c "$CWD" "$LAUNCHER; exec bash"
+  else
+    echo "No supported terminal found (install tmux, or run from inside a tmux session)"
+    rm -f "$LAUNCHER"
+    exit 1
+  fi
+}
+
+case "$(uname)" in
+  Darwin) open_macos ;;
+  Linux)  open_linux ;;
+  *)      echo "Unsupported OS: $(uname)"; rm -f "$LAUNCHER"; exit 1 ;;
+esac

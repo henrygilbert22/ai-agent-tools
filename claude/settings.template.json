@@ -1,0 +1,17 @@
+{
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
+    "ANTHROPIC_API_KEY": "YOUR_API_KEY_HERE"
+  },
+  "hooks": {
+    "SessionStart": [
+      {"hooks": [{"type": "command", "command": "bash ~/.claude/session-start-hook.sh"}]}
+    ],
+    "UserPromptSubmit": [
+      {"hooks": [{"type": "command", "command": "bash ~/.claude/inject-session-log.sh"}]}
+    ],
+    "Stop": [
+      {"hooks": [{"type": "command", "command": "bash ~/.claude/stop-hook-update.sh", "async": true}]}
+    ]
+  }
+}
