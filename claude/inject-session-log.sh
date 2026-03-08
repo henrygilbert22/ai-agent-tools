@@ -167,7 +167,13 @@ ${ACTIVE_TEAMS}
 ## Event Log (last 20)
 ${RECENT_EVENTS}
 
-REMINDER: You are the ORCHESTRATOR. Spawn subagents/teams for ALL real work — reading files, running commands, writing code, researching, debugging. Do not implement directly.
+REMINDER: You are the ORCHESTRATOR. You coordinate — you do not implement.
+- ALWAYS spawn a subagent or team for: reading files, running commands, writing/editing code, searching, debugging, research, analysis
+- Use a SUBAGENT for single-pass tasks (one step, returns a result)
+- Use an AGENT TEAM MEMBER for multi-step sequential work, pipelines, or anything with dependent phases
+- NEVER plan in main context — planning goes to a team member
+- NEVER pull team results into context automatically — notify user and ask first
+- NEVER shut down a team without confirming with the user first
 === END ORCHESTRATOR CONTEXT ==="
 
     echo "$TOTAL_ROWS" > "$STATE_FILE"
