@@ -12,6 +12,38 @@ This system solves that by maintaining a structured, append-only event log per s
 
 ---
 
+## Installation
+
+1. **Copy scripts** to `~/.claude/`:
+   ```bash
+   cp claude/session-start-hook.sh claude/inject-session-log.sh claude/stop-hook-update.sh ~/.claude/
+   chmod +x ~/.claude/*.sh
+   ```
+
+2. **Install `cf`** fork command:
+   ```bash
+   cp claude/cf ~/.local/bin/cf
+   chmod +x ~/.local/bin/cf
+   # Ensure ~/.local/bin is on your PATH
+   ```
+
+3. **Configure settings**:
+   ```bash
+   cp claude/settings.template.json ~/.claude/settings.json
+   # Edit ~/.claude/settings.json and replace YOUR_API_KEY_HERE with your Anthropic API key
+   ```
+
+4. **Install CLAUDE.md**:
+   ```bash
+   cp claude/CLAUDE.md ~/.claude/CLAUDE.md
+   ```
+
+5. **Dependencies**: `jq`, `curl`, `bash 4+`. On macOS: `brew install jq`.
+
+**Note**: The `ANTHROPIC_API_KEY` in `settings.json` is used by the background Haiku sync process — it's separate from the key Claude Code itself uses for the main session.
+
+---
+
 ## Architecture
 
 ```mermaid
@@ -49,7 +81,7 @@ Claude Responds
 Turn Ends
   └── stop-hook-update.sh  (Stop hook, async: true)
         Derives session log path from session_id in stdin JSON (never from env var)
-        Reads last 4 transcript exchanges → derives structured state from Event Log
+        Reads last ~200 lines of transcript JSONL → extracts last ~50 message lines → derives structured state from Event Log
         Passes to Haiku: current_goal, exit_criteria, active_subagents, last_10_events
         Haiku returns {"events": [...]} JSON
         Bash script validates types and appends formatted rows to Event Log
@@ -78,7 +110,7 @@ sequenceDiagram
     CC-->>U: shows response
     CC-)SH: Stop hook (async, non-blocking)
     SH->>SL: reads Event Log → derives current state
-    SH->>HK: current_goal + exit_criteria + active_subagents + last_10_events + last 5 turns
+    SH->>HK: current_goal + exit_criteria + active_subagents + last_10_events + last ~50 lines of transcript
     HK-->>SH: {"events": [...]}
     SH->>SL: appends new event rows + updates Last auto-sync
     Note over SH,SL: completes before user sends next message
@@ -89,23 +121,21 @@ sequenceDiagram
 Each Claude Code instance — the main orchestrator, team leads, and subagents — has its own session ID and its own isolated session log. The stop hook always derives the log path from `session_id` in the stdin JSON, not from the `SESSION_LOG_PATH` env var (which was collision-prone across instances sharing an environment).
 
 ```mermaid
-flowchart LR
-    subgraph Main["Main Orchestrator Session"]
-        ML[(Main Session Log\nbab51afd.md)]
+flowchart TD
+    subgraph Main["Main Orchestrator"]
+        MC[Claude\norchestrator] -->|response text\nmentions team events| MH[Haiku]
+        MH -->|appends TEAM_CREATED\nTEAM_COMPLETED| ML[(Main Log\nbab51afd.md)]
     end
-    subgraph TL["Agent Team Lead Session"]
-        TLL[(Team Lead Log\nabc123.md)]
+    subgraph TL["Agent Team Lead"]
+        TLC[Team Lead\nClaude] -->|response text| TLH[Haiku]
+        TLH -->|appends internal\nevents| TLL[(Team Log\nabc123.md)]
     end
-    subgraph SA["Subagent Session"]
-        SAL[(Subagent Log\ndef456.md)]
+    subgraph SA["Subagent"]
+        SAC[Subagent\nClaude] -->|response text| SAH[Haiku]
+        SAH -->|appends events| SAL[(Subagent Log\ndef456.md)]
     end
-
-    Main -->|TEAM_CREATED\nTEAM_COMPLETED| TL
-    TL -->|SUBAGENT_STARTED\nSUBAGENT_COMPLETED\ninternal events| SA
-
-    H1[Haiku] -->|updates| ML
-    H2[Haiku] -->|updates| TLL
-    H3[Haiku] -->|updates| SAL
+    MC -->|spawns| TLC
+    TLC -->|spawns| SAC
 ```
 
 **Team leads** are separate Claude Code instances with their own session IDs. Their Stop hook fires after each response, so Haiku populates their own session log tracking internal work. The main orchestrator's session log sees only TEAM_CREATED / TEAM_COMPLETED events — it does not see the team's internal activity.
@@ -188,7 +218,7 @@ This prevents the same context from accumulating identically across every turn i
 
 The background Haiku call (`claude-haiku-4-5-20251001`) runs after each Claude turn:
 - Derives structured state from the Event Log: current goal, exit criteria, active subagents, last 10 events
-- Gets the last 4 conversation exchanges from the transcript JSONL
+- Reads the last ~200 lines of the transcript JSONL, extracts user/assistant turns, and passes the last ~50 message lines (up to 6000 chars) to Haiku
 - Passes derived state + recent conversation to Haiku (same view Claude gets)
 - Returns structured JSON: `{"events": [{"type": "...", ...}, ...]}`
 - The bash script validates types against the enum and appends formatted rows
