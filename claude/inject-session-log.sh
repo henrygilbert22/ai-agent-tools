@@ -67,7 +67,7 @@ COMPLETED_IDS=$(echo "$EVENT_LOG" | awk -F'|' '$3 ~ /^[[:space:]]*SUBAGENT_COMPL
 ACTIVE_SUBAGENTS_ROWS=""
 while IFS= read -r sid; do
     [ -z "$sid" ] && continue
-    if ! echo "$COMPLETED_IDS" | grep -qF "$sid"; then
+    if ! echo "$COMPLETED_IDS" | grep -qxF "$sid"; then
         # Find the matching STARTED row for details
         ROW=$(echo "$EVENT_LOG" | awk -F'|' -v id="$sid" '$3 ~ /^[[:space:]]*SUBAGENT_STARTED[[:space:]]*$/ && $4 ~ id {print}' | head -1 || true)
         ACTIVE_SUBAGENTS_ROWS="${ACTIVE_SUBAGENTS_ROWS}${ROW}"$'\n'
@@ -102,7 +102,7 @@ COMPLETED_TEAMS=$(echo "$EVENT_LOG" | awk -F'|' '$3 ~ /^[[:space:]]*TEAM_COMPLET
 ACTIVE_TEAMS_ROWS=""
 while IFS= read -r tname; do
     [ -z "$tname" ] && continue
-    if ! echo "$COMPLETED_TEAMS" | grep -qF "$tname"; then
+    if ! echo "$COMPLETED_TEAMS" | grep -qxF "$tname"; then
         ROW=$(echo "$EVENT_LOG" | awk -F'|' -v t="$tname" '$3 ~ /^[[:space:]]*TEAM_CREATED[[:space:]]*$/ && $4 ~ t {print}' | head -1 || true)
         ACTIVE_TEAMS_ROWS="${ACTIVE_TEAMS_ROWS}${ROW}"$'\n'
     fi

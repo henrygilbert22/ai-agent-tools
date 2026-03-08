@@ -44,7 +44,7 @@ jq -n \
   '{
     "hookSpecificOutput": {
       "hookEventName": "SessionStart",
-      "additionalContext": ("You are the ORCHESTRATOR. Session log: " + $path + "\nFull context will be injected on your first prompt. NEVER use Write on the session log — only Edit to append rows.")
+      "additionalContext": ("You are the ORCHESTRATOR. Session log: " + $path + "\nFull context will be injected on your first prompt. NEVER write to the session log — not with Edit, not with Write. Haiku handles all updates.")
     }
   }'
 

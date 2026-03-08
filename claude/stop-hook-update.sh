@@ -87,7 +87,7 @@ _do_update() {
     ACTIVE_SUBS=""
     while IFS= read -r sid; do
         [ -z "$sid" ] && continue
-        if ! echo "$COMPLETED_IDS" | grep -qF "$sid"; then
+        if ! echo "$COMPLETED_IDS" | grep -qxF "$sid"; then
             ROW=$(echo "$EVENT_LOG" | awk -F'|' -v id="$sid" '$3 ~ /^[[:space:]]*SUBAGENT_STARTED[[:space:]]*$/ && $4 ~ id {print}' | head -1 || true)
             ACTIVE_SUBS="${ACTIVE_SUBS}${ROW}"$'\n'
         fi
@@ -101,7 +101,7 @@ _do_update() {
     CLAUDE_MD=$(cat "$HOME/.claude/CLAUDE.md" 2>/dev/null || true)
 
     NOW_UTC=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
-    NOW_TIME=$(date -u '+%H:%M')
+    NOW_TIME=$(date -u '+%Y-%m-%d %H:%M')
 
     # ── Build Haiku API request ──────────────────────────────────────────────
     # System prompt is static = gets prompt-cached across turns
@@ -190,15 +190,29 @@ Return a JSON object with an events array. Return {\"events\": []} if nothing me
         exit 0  # Invalid response, skip silently
     fi
 
+    # ── Escape pipe characters in field values to prevent awk table corruption ─
+    NEW_ROWS_CLEAN=$(echo "$NEW_ROWS" | jq '
+      .events[] |= (
+        .goal //= "" | .goal |= gsub("\\|"; "\\\\|") |
+        .exit_criteria //= "" | .exit_criteria |= gsub("\\|"; "\\\\|") |
+        .task //= "" | .task |= gsub("\\|"; "\\\\|") |
+        .outcome //= "" | .outcome |= gsub("\\|"; "\\\\|") |
+        .text //= "" | .text |= gsub("\\|"; "\\\\|") |
+        .update //= "" | .update |= gsub("\\|"; "\\\\|") |
+        .purpose //= "" | .purpose |= gsub("\\|"; "\\\\|") |
+        .name //= "" | .name |= gsub("\\|"; "\\\\|")
+      )
+    ' 2>/dev/null || echo "$NEW_ROWS")
+
     # ── Parse events array and append each as a table row ────────────────────
-    EVENT_COUNT=$(echo "$NEW_ROWS" | jq '.events | length' 2>/dev/null || echo 0)
+    EVENT_COUNT=$(echo "$NEW_ROWS_CLEAN" | jq '.events | length' 2>/dev/null || echo 0)
     if [ "$EVENT_COUNT" -eq 0 ] 2>/dev/null; then
         # Update timestamp only
         sed -i "s/^- Last auto-sync:.*$/- Last auto-sync: ${NOW_UTC}/" "$SESSION_LOG"
         exit 0
     fi
 
-    echo "$NEW_ROWS" | jq -r --arg time "$NOW_TIME" '.events[] |
+    NEW_ROW_LINES=$(echo "$NEW_ROWS_CLEAN" | jq -r --arg time "$NOW_TIME" '.events[] |
         if .type == "GOAL_SET" then
             "| " + $time + " | GOAL_SET | " + .goal + " | Exit: " + .exit_criteria + " |"
         elif .type == "SESSION_RENAMED" then
@@ -217,10 +231,13 @@ Return a JSON object with an events array. Return {\"events\": []} if nothing me
             "| " + $time + " | TEAM_COMPLETED | team=" + .team + " outcome=\"" + .outcome + "\" |"
         elif .type == "NOTE" then
             "| " + $time + " | NOTE | " + .text + " |"
-        else empty end' 2>/dev/null >> "$SESSION_LOG" || true
+        else empty end' 2>/dev/null || true)
 
-    # ── Update Last auto-sync line ────────────────────────────────────────────
-    sed -i "s/^- Last auto-sync:.*$/- Last auto-sync: ${NOW_UTC}/" "$SESSION_LOG"
+    # ── Atomically update timestamp + append new rows ─────────────────────────
+    {
+        sed "s/^- Last auto-sync:.*$/- Last auto-sync: ${NOW_UTC}/" "$SESSION_LOG"
+        echo "$NEW_ROW_LINES"
+    } > "${SESSION_LOG}.tmp" && mv "${SESSION_LOG}.tmp" "$SESSION_LOG"
 }
 
 # Use flock if available, otherwise run without locking
