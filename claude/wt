@@ -1,0 +1,641 @@
+#!/usr/bin/env bash
+# wt — git worktree manager
+# Usage: wt <command> [args]
+
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Color helpers
+# ---------------------------------------------------------------------------
+if [ -t 1 ] && command -v tput &>/dev/null && tput colors &>/dev/null && [ "$(tput colors)" -ge 8 ]; then
+  RED=$(tput setaf 1)
+  GREEN=$(tput setaf 2)
+  YELLOW=$(tput setaf 3)
+  CYAN=$(tput setaf 6)
+  BOLD=$(tput bold)
+  RESET=$(tput sgr0)
+else
+  RED="" GREEN="" YELLOW="" CYAN="" BOLD="" RESET=""
+fi
+
+# ---------------------------------------------------------------------------
+# Repo detection
+# ---------------------------------------------------------------------------
+get_repo_dir() {
+  if ! REPO_DIR=$(git rev-parse --show-toplevel 2>/dev/null); then
+    echo "${RED}error:${RESET} not inside a git repository" >&2
+    exit 1
+  fi
+  echo "$REPO_DIR"
+}
+
+get_worktree_base() {
+  local repo_dir="$1"
+  echo "$repo_dir/worktrees"
+}
+
+# Returns list of worktree dirs (excluding the main worktree)
+list_worktree_dirs() {
+  local repo_dir="$1"
+  local worktree_base
+  worktree_base=$(get_worktree_base "$repo_dir")
+  git -C "$repo_dir" worktree list --porcelain \
+    | awk '/^worktree /{print $2}' \
+    | grep -v "^$repo_dir$" \
+    | grep "^$worktree_base" 2>/dev/null || true
+}
+
+# Resolve worktree dir from a name (basename match)
+resolve_worktree() {
+  local repo_dir="$1"
+  local name="$2"
+  local wt_dir
+  while IFS= read -r wt_dir; do
+    if [ "$(basename "$wt_dir")" = "$name" ]; then
+      echo "$wt_dir"
+      return 0
+    fi
+  done < <(list_worktree_dirs "$repo_dir")
+  # Also try exact path
+  if [ -d "$name" ]; then
+    echo "$name"
+    return 0
+  fi
+  echo "${RED}error:${RESET} worktree '$name' not found" >&2
+  exit 1
+}
+
+# Detect main branch (main or master)
+get_main_branch() {
+  local repo_dir="$1"
+  if git -C "$repo_dir" show-ref --verify --quiet refs/heads/main 2>/dev/null; then
+    echo "main"
+  elif git -C "$repo_dir" show-ref --verify --quiet refs/heads/master 2>/dev/null; then
+    echo "master"
+  else
+    # fallback: first branch in the main worktree
+    git -C "$repo_dir" symbolic-ref --short HEAD 2>/dev/null || echo "main"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# cmd: help
+# ---------------------------------------------------------------------------
+cmd_help() {
+  cat <<EOF
+${BOLD}wt${RESET} — git worktree manager
+
+${BOLD}USAGE${RESET}
+  wt <command> [arguments]
+
+${BOLD}COMMANDS${RESET}
+  ${CYAN}create <name>${RESET}     Create a worktree with branch <name>-<date>
+                    Outputs path to stdout — use: cd \$(wt create foo)
+
+  ${CYAN}list${RESET}              List all worktrees: name, branch, last commit, dirty, ahead/behind
+  ${CYAN}status [name]${RESET}     Show git status --short for all (or one) worktree(s)
+  ${CYAN}log [name] [n]${RESET}    Show last N commits (default 5) for each worktree (or one)
+  ${CYAN}age${RESET}               Show worktrees sorted by last commit, oldest first
+
+  ${CYAN}agents${RESET}            Show AI agent CLIs (claude/codex/cursor) running in each worktree
+  ${CYAN}tmux${RESET}              Show tmux windows/panes attached to each worktree
+
+  ${CYAN}open <name>${RESET}       Open a new tmux window for the worktree
+  ${CYAN}cd <name>${RESET}         Print worktree path (use: alias wcd='cd \$(wt cd)')
+
+  ${CYAN}sync <name>${RESET}       Rebase worktree branch onto origin/main (or origin/master)
+  ${CYAN}rm <name>${RESET}         Remove a worktree (confirms if dirty)
+  ${CYAN}prune${RESET}             Remove worktrees whose branches are merged into main/master
+
+  ${CYAN}diff <name>${RESET}       Show git diff summary: main...<branch>
+
+${BOLD}ALIASES / SHELL TIPS${RESET}
+  alias wcd='cd \$(wt cd)'    # jump to a worktree by name
+  cd \$(wt create feature)    # create and enter a new worktree
+EOF
+}
+
+# ---------------------------------------------------------------------------
+# cmd: create
+# ---------------------------------------------------------------------------
+cmd_create() {
+  if [ $# -lt 1 ]; then
+    echo "${RED}error:${RESET} usage: wt create <name>" >&2
+    exit 1
+  fi
+  local feature_name="$1"
+  local repo_dir
+  repo_dir=$(get_repo_dir)
+  local date_str
+  date_str=$(date +%Y-%m-%d)
+  local branch_name="${feature_name}-${date_str}"
+  local worktree_base
+  worktree_base=$(get_worktree_base "$repo_dir")
+  local worktree_dir="$worktree_base/$branch_name"
+
+  mkdir -p "$worktree_base"
+  git -C "$repo_dir" worktree add "$worktree_dir" -b "$branch_name" >&2
+  cp "$repo_dir/.env" "$worktree_dir/.env" 2>/dev/null || true
+  cp -r "$repo_dir/.bin" "$worktree_dir/.bin" 2>/dev/null || true
+  echo "$worktree_dir"
+}
+
+# ---------------------------------------------------------------------------
+# cmd: list
+# ---------------------------------------------------------------------------
+cmd_list() {
+  local repo_dir
+  repo_dir=$(get_repo_dir)
+  local main_branch
+  main_branch=$(get_main_branch "$repo_dir")
+
+  # Header
+  printf "${BOLD}%-30s %-30s %-20s %-6s %s${RESET}\n" "NAME" "BRANCH" "LAST COMMIT" "DIRTY" "AHEAD/BEHIND"
+
+  local wt_dir
+  while IFS= read -r wt_dir; do
+    local name branch last_commit dirty ahead_behind
+
+    name=$(basename "$wt_dir")
+
+    # Branch
+    branch=$(git -C "$wt_dir" symbolic-ref --short HEAD 2>/dev/null || git -C "$wt_dir" rev-parse --short HEAD 2>/dev/null || echo "(detached)")
+
+    # Last commit: short hash + relative time
+    local hash rel_time
+    hash=$(git -C "$wt_dir" log -1 --format='%h' 2>/dev/null || echo "?")
+    rel_time=$(git -C "$wt_dir" log -1 --format='%cr' 2>/dev/null || echo "?")
+    last_commit="$hash $rel_time"
+
+    # Dirty check
+    if git -C "$wt_dir" status --porcelain 2>/dev/null | grep -q .; then
+      dirty="${RED}✗${RESET}"
+    else
+      dirty="${GREEN}✓${RESET}"
+    fi
+
+    # Ahead/behind main
+    local ahead behind
+    ahead=$(git -C "$repo_dir" rev-list --count "$main_branch".."$branch" 2>/dev/null || echo "?")
+    behind=$(git -C "$repo_dir" rev-list --count "$branch".."$main_branch" 2>/dev/null || echo "?")
+    ahead_behind="+${ahead}/-${behind}"
+
+    printf "%-30s %-30s %-20s %-6b %s\n" \
+      "$name" "$branch" "$last_commit" "$dirty" "$ahead_behind"
+  done < <(list_worktree_dirs "$repo_dir")
+}
+
+# ---------------------------------------------------------------------------
+# cmd: status
+# ---------------------------------------------------------------------------
+cmd_status() {
+  local repo_dir
+  repo_dir=$(get_repo_dir)
+
+  local target_name="${1:-}"
+
+  local wt_dir
+  while IFS= read -r wt_dir; do
+    local name
+    name=$(basename "$wt_dir")
+    if [ -n "$target_name" ] && [ "$name" != "$target_name" ]; then
+      continue
+    fi
+    echo "${BOLD}${CYAN}=== $name ===${RESET}"
+    local out
+    out=$(git -C "$wt_dir" status --short 2>/dev/null)
+    if [ -z "$out" ]; then
+      echo "  ${GREEN}clean${RESET}"
+    else
+      echo "$out" | sed 's/^/  /'
+    fi
+    echo
+  done < <(list_worktree_dirs "$repo_dir")
+}
+
+# ---------------------------------------------------------------------------
+# cmd: log
+# ---------------------------------------------------------------------------
+cmd_log() {
+  local repo_dir
+  repo_dir=$(get_repo_dir)
+
+  local target_name="" n=5
+  # Parse args: optional name (non-numeric) and optional count (numeric)
+  for arg in "$@"; do
+    if [[ "$arg" =~ ^[0-9]+$ ]]; then
+      n="$arg"
+    else
+      target_name="$arg"
+    fi
+  done
+
+  local wt_dir
+  while IFS= read -r wt_dir; do
+    local name
+    name=$(basename "$wt_dir")
+    if [ -n "$target_name" ] && [ "$name" != "$target_name" ]; then
+      continue
+    fi
+    echo "${BOLD}${CYAN}=== $name ===${RESET}"
+    git -C "$wt_dir" log -"$n" --oneline --decorate 2>/dev/null | sed 's/^/  /' || echo "  (no commits)"
+    echo
+  done < <(list_worktree_dirs "$repo_dir")
+}
+
+# ---------------------------------------------------------------------------
+# cmd: age
+# ---------------------------------------------------------------------------
+cmd_age() {
+  local repo_dir
+  repo_dir=$(get_repo_dir)
+
+  # Build list of (unix_timestamp, wt_dir) then sort
+  local -a entries=()
+  local wt_dir
+  while IFS= read -r wt_dir; do
+    local ts
+    ts=$(git -C "$wt_dir" log -1 --format='%at' 2>/dev/null || echo 0)
+    entries+=("$ts $wt_dir")
+  done < <(list_worktree_dirs "$repo_dir")
+
+  # Sort oldest first
+  IFS=$'\n' sorted=($(printf '%s\n' "${entries[@]}" | sort -n)); unset IFS
+
+  printf "${BOLD}%-30s %-30s %s${RESET}\n" "NAME" "BRANCH" "LAST COMMIT"
+  local entry
+  for entry in "${sorted[@]}"; do
+    local wt_dir="${entry#* }"
+    local name branch hash rel_time
+    name=$(basename "$wt_dir")
+    branch=$(git -C "$wt_dir" symbolic-ref --short HEAD 2>/dev/null || echo "(detached)")
+    hash=$(git -C "$wt_dir" log -1 --format='%h' 2>/dev/null || echo "?")
+    rel_time=$(git -C "$wt_dir" log -1 --format='%cr' 2>/dev/null || echo "?")
+    printf "%-30s %-30s %s %s\n" "$name" "$branch" "$hash" "$rel_time"
+  done
+}
+
+# ---------------------------------------------------------------------------
+# cmd: agents
+# ---------------------------------------------------------------------------
+cmd_agents() {
+  local repo_dir
+  repo_dir=$(get_repo_dir)
+  local worktree_base
+  worktree_base=$(get_worktree_base "$repo_dir")
+
+  # Collect all worktree dirs
+  local -A wt_agents=()
+  local wt_dir
+  while IFS= read -r wt_dir; do
+    wt_agents["$wt_dir"]=""
+  done < <(list_worktree_dirs "$repo_dir")
+
+  if [ ${#wt_agents[@]} -eq 0 ]; then
+    echo "No worktrees found."
+    return
+  fi
+
+  # Find agent processes
+  local is_macos=false
+  if [[ "$(uname)" == "Darwin" ]]; then
+    is_macos=true
+  fi
+
+  # For each matching process, find its CWD
+  while IFS= read -r line; do
+    local pid cmd
+    pid=$(echo "$line" | awk '{print $2}')
+    cmd=$(echo "$line" | awk '{print $11}' | xargs basename 2>/dev/null || echo "unknown")
+
+    # Detect agent type
+    local agent_type="unknown"
+    if echo "$cmd" | grep -qi claude; then agent_type="claude"; fi
+    if echo "$cmd" | grep -qi codex; then agent_type="codex"; fi
+    if echo "$cmd" | grep -qi cursor; then agent_type="cursor"; fi
+
+    # Get CWD of process
+    local proc_cwd=""
+    if [ "$is_macos" = true ]; then
+      proc_cwd=$(lsof -p "$pid" 2>/dev/null | awk '$4=="cwd"{print $9}' | head -1)
+    else
+      proc_cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null || true)
+    fi
+
+    if [ -z "$proc_cwd" ]; then continue; fi
+
+    # Match against worktrees
+    for wt_dir in "${!wt_agents[@]}"; do
+      if [[ "$proc_cwd" == "$wt_dir"* ]]; then
+        # Get process start time for duration estimate
+        local elapsed=""
+        if [ "$is_macos" = false ] && [ -f "/proc/$pid/stat" ]; then
+          local start_ticks hz uptime_secs elapsed_secs elapsed_min
+          start_ticks=$(awk '{print $22}' "/proc/$pid/stat" 2>/dev/null || echo 0)
+          hz=$(getconf CLK_TCK 2>/dev/null || echo 100)
+          uptime_secs=$(awk '{print int($1)}' /proc/uptime 2>/dev/null || echo 0)
+          elapsed_secs=$(( uptime_secs - start_ticks / hz ))
+          elapsed_min=$(( elapsed_secs / 60 ))
+          if [ "$elapsed_min" -gt 60 ]; then
+            elapsed="${elapsed_min}min ($(( elapsed_min / 60 ))h $(( elapsed_min % 60 ))m)"
+          else
+            elapsed="${elapsed_min}min"
+          fi
+        fi
+        local info="$agent_type  (pid $pid"
+        [ -n "$elapsed" ] && info="$info, ${elapsed}"
+        info="$info)"
+        wt_agents["$wt_dir"]+="  $info"$'\n'
+      fi
+    done
+  done < <(ps aux | grep -E '\bclaude\b|\bcodex\b|\bcursor\b' | grep -v grep)
+
+  # Print results
+  for wt_dir in "${!wt_agents[@]}"; do
+    local name
+    name=$(basename "$wt_dir")
+    echo "${BOLD}${CYAN}${name}:${RESET}"
+    if [ -n "${wt_agents[$wt_dir]}" ]; then
+      printf "%s" "${wt_agents[$wt_dir]}"
+    else
+      echo "  (none)"
+    fi
+    echo
+  done
+}
+
+# ---------------------------------------------------------------------------
+# cmd: tmux
+# ---------------------------------------------------------------------------
+cmd_tmux() {
+  local repo_dir
+  repo_dir=$(get_repo_dir)
+
+  if ! command -v tmux &>/dev/null; then
+    echo "${YELLOW}warning:${RESET} tmux not found" >&2
+    exit 1
+  fi
+
+  # Map worktree dir -> name
+  local -A wt_map=()
+  local wt_dir
+  while IFS= read -r wt_dir; do
+    wt_map["$wt_dir"]=$(basename "$wt_dir")
+  done < <(list_worktree_dirs "$repo_dir")
+
+  if [ ${#wt_map[@]} -eq 0 ]; then
+    echo "No worktrees found."
+    return
+  fi
+
+  # Get all tmux panes with their paths
+  local pane_list
+  pane_list=$(tmux list-panes -a -F "#{session_name}:#{window_index}.#{pane_index} #{pane_current_path}" 2>/dev/null || true)
+
+  if [ -z "$pane_list" ]; then
+    echo "${YELLOW}No tmux panes found (is tmux running?).${RESET}"
+    return
+  fi
+
+  # For each worktree, find matching panes
+  local printed=()
+  for wt_dir in "${!wt_map[@]}"; do
+    local name="${wt_map[$wt_dir]}"
+    local matches=""
+    while IFS= read -r pane_line; do
+      local pane_id pane_path
+      pane_id=$(echo "$pane_line" | awk '{print $1}')
+      pane_path=$(echo "$pane_line" | awk '{print $2}')
+      if [[ "$pane_path" == "$wt_dir"* ]]; then
+        matches+="  $pane_id  ($pane_path)"$'\n'
+      fi
+    done <<< "$pane_list"
+
+    echo "${BOLD}${CYAN}${name}:${RESET}"
+    if [ -n "$matches" ]; then
+      printf "%s" "$matches"
+    else
+      echo "  (none)"
+    fi
+    echo
+    printed+=("$name")
+  done
+}
+
+# ---------------------------------------------------------------------------
+# cmd: open
+# ---------------------------------------------------------------------------
+cmd_open() {
+  if [ $# -lt 1 ]; then
+    echo "${RED}error:${RESET} usage: wt open <name>" >&2
+    exit 1
+  fi
+  local repo_dir
+  repo_dir=$(get_repo_dir)
+  local wt_dir
+  wt_dir=$(resolve_worktree "$repo_dir" "$1")
+
+  if ! command -v tmux &>/dev/null; then
+    echo "${YELLOW}warning:${RESET} tmux not found" >&2
+    exit 1
+  fi
+  if [ -z "${TMUX:-}" ]; then
+    echo "${YELLOW}warning:${RESET} not inside a tmux session" >&2
+    exit 1
+  fi
+
+  local name
+  name=$(basename "$wt_dir")
+  tmux new-window -c "$wt_dir" -n "$name"
+  echo "Opened tmux window '${name}' at $wt_dir"
+}
+
+# ---------------------------------------------------------------------------
+# cmd: cd
+# ---------------------------------------------------------------------------
+cmd_cd() {
+  if [ $# -lt 1 ]; then
+    echo "${RED}error:${RESET} usage: wt cd <name>  (tip: alias wcd='cd \$(wt cd)')" >&2
+    exit 1
+  fi
+  local repo_dir
+  repo_dir=$(get_repo_dir)
+  resolve_worktree "$repo_dir" "$1"
+}
+
+# ---------------------------------------------------------------------------
+# cmd: sync
+# ---------------------------------------------------------------------------
+cmd_sync() {
+  if [ $# -lt 1 ]; then
+    echo "${RED}error:${RESET} usage: wt sync <name>" >&2
+    exit 1
+  fi
+  local repo_dir
+  repo_dir=$(get_repo_dir)
+  local wt_dir
+  wt_dir=$(resolve_worktree "$repo_dir" "$1")
+  local main_branch
+  main_branch=$(get_main_branch "$repo_dir")
+
+  echo "Fetching origin..."
+  git -C "$wt_dir" fetch origin "$main_branch" 2>&1
+
+  echo "Rebasing onto origin/${main_branch}..."
+  git -C "$wt_dir" rebase "origin/$main_branch"
+  echo "${GREEN}Done.${RESET} $(basename "$wt_dir") is now rebased onto origin/${main_branch}."
+}
+
+# ---------------------------------------------------------------------------
+# cmd: rm
+# ---------------------------------------------------------------------------
+cmd_rm() {
+  if [ $# -lt 1 ]; then
+    echo "${RED}error:${RESET} usage: wt rm <name>" >&2
+    exit 1
+  fi
+  local repo_dir
+  repo_dir=$(get_repo_dir)
+  local wt_dir
+  wt_dir=$(resolve_worktree "$repo_dir" "$1")
+  local name
+  name=$(basename "$wt_dir")
+
+  # Check dirty
+  if git -C "$wt_dir" status --porcelain 2>/dev/null | grep -q .; then
+    echo "${YELLOW}warning:${RESET} worktree '$name' has uncommitted changes:"
+    git -C "$wt_dir" status --short | sed 's/^/  /'
+    printf "Remove anyway? [y/N] "
+    read -r answer
+    if [[ ! "$answer" =~ ^[Yy]$ ]]; then
+      echo "Aborted."
+      exit 0
+    fi
+  else
+    printf "Remove worktree '${BOLD}%s${RESET}'? [y/N] " "$name"
+    read -r answer
+    if [[ ! "$answer" =~ ^[Yy]$ ]]; then
+      echo "Aborted."
+      exit 0
+    fi
+  fi
+
+  git -C "$repo_dir" worktree remove --force "$wt_dir" 2>/dev/null || true
+  rm -rf "$wt_dir" 2>/dev/null || true
+  echo "${GREEN}Removed${RESET} $wt_dir"
+
+  # Offer to delete the branch
+  local branch
+  branch=$(git -C "$repo_dir" branch --list "$name" | tr -d ' ' || true)
+  if [ -n "$branch" ]; then
+    printf "Also delete branch '${BOLD}%s${RESET}'? [y/N] " "$branch"
+    read -r del_branch
+    if [[ "$del_branch" =~ ^[Yy]$ ]]; then
+      git -C "$repo_dir" branch -D "$branch"
+      echo "${GREEN}Deleted${RESET} branch $branch"
+    fi
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# cmd: prune
+# ---------------------------------------------------------------------------
+cmd_prune() {
+  local repo_dir
+  repo_dir=$(get_repo_dir)
+  local main_branch
+  main_branch=$(get_main_branch "$repo_dir")
+
+  # Find worktrees whose branches are fully merged into main
+  local -a to_remove=()
+  local wt_dir
+  while IFS= read -r wt_dir; do
+    local branch
+    branch=$(git -C "$wt_dir" symbolic-ref --short HEAD 2>/dev/null || continue)
+    # merged if no commits ahead of main
+    local ahead
+    ahead=$(git -C "$repo_dir" rev-list --count "$main_branch".."$branch" 2>/dev/null || echo 1)
+    if [ "$ahead" -eq 0 ]; then
+      to_remove+=("$wt_dir ($branch)")
+    fi
+  done < <(list_worktree_dirs "$repo_dir")
+
+  if [ ${#to_remove[@]} -eq 0 ]; then
+    echo "No merged worktrees to prune."
+    return
+  fi
+
+  echo "The following worktrees are fully merged into ${main_branch}:"
+  local item
+  for item in "${to_remove[@]}"; do
+    echo "  ${YELLOW}$item${RESET}"
+  done
+
+  printf "\nRemove all? [y/N] "
+  read -r answer
+  if [[ ! "$answer" =~ ^[Yy]$ ]]; then
+    echo "Aborted."
+    exit 0
+  fi
+
+  for item in "${to_remove[@]}"; do
+    local wt_dir="${item% (*}"
+    git -C "$repo_dir" worktree remove --force "$wt_dir" 2>/dev/null || true
+    rm -rf "$wt_dir" 2>/dev/null || true
+    echo "${GREEN}Removed${RESET} $wt_dir"
+  done
+
+  # Clean up git worktree tracking
+  git -C "$repo_dir" worktree prune
+  echo "${GREEN}Done.${RESET}"
+}
+
+# ---------------------------------------------------------------------------
+# cmd: diff
+# ---------------------------------------------------------------------------
+cmd_diff() {
+  if [ $# -lt 1 ]; then
+    echo "${RED}error:${RESET} usage: wt diff <name>" >&2
+    exit 1
+  fi
+  local repo_dir
+  repo_dir=$(get_repo_dir)
+  local wt_dir
+  wt_dir=$(resolve_worktree "$repo_dir" "$1")
+  local main_branch
+  main_branch=$(get_main_branch "$repo_dir")
+  local branch
+  branch=$(git -C "$wt_dir" symbolic-ref --short HEAD 2>/dev/null || echo "HEAD")
+
+  echo "${BOLD}Diff summary: ${main_branch}...${branch}${RESET}"
+  git -C "$repo_dir" diff --stat "$main_branch"..."$branch" 2>/dev/null || \
+    git -C "$repo_dir" diff --stat "$(git -C "$repo_dir" merge-base "$main_branch" "$branch")" "$branch"
+}
+
+# ---------------------------------------------------------------------------
+# Dispatch
+# ---------------------------------------------------------------------------
+COMMAND="${1:-help}"
+shift || true
+
+case "$COMMAND" in
+  help|--help|-h)   cmd_help ;;
+  create)           cmd_create "$@" ;;
+  list|ls)          cmd_list "$@" ;;
+  status|st)        cmd_status "$@" ;;
+  log)              cmd_log "$@" ;;
+  age)              cmd_age "$@" ;;
+  agents)           cmd_agents "$@" ;;
+  tmux)             cmd_tmux "$@" ;;
+  open)             cmd_open "$@" ;;
+  cd)               cmd_cd "$@" ;;
+  sync)             cmd_sync "$@" ;;
+  rm|remove)        cmd_rm "$@" ;;
+  prune)            cmd_prune "$@" ;;
+  diff)             cmd_diff "$@" ;;
+  *)
+    echo "${RED}error:${RESET} unknown command: $COMMAND" >&2
+    echo "Run 'wt help' for usage." >&2
+    exit 1
+    ;;
+esac
