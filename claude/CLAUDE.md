@@ -111,6 +111,4 @@ Format:
 {"next_id": 4, "active": [{"id":1,"name":"...","created":"..."}], "completed": [...], "cancelled": [...]}
 ```
 
-When the user says "add X to todos" or "what are my todos" — read/update this file directly. To add: append to `active` array with next_id, increment next_id. To complete/cancel: move the item. Always use Edit with atomic jq transforms, never Write.
-
-The user can also use silent hook commands (invisible to Claude): `todo-add`, `todo-list`, `todo-done <id>`, `todo-cancel <id>`, `todo-delete <id>`.
+When the user asks about todos (add, list, complete, cancel, delete) — read/update this file directly using the Read and Edit tools. To add: append to `active` array with next_id, increment next_id. To complete/cancel: move the item with a timestamp. Always use Edit with atomic jq transforms, never Write.
