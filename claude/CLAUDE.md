@@ -57,6 +57,13 @@ For everything else — even complex sequential pipelines — use a background `
 
 - Can be 1 member or many depending on how work can be parallelized
 
+**Team leadership and membership control:**
+- The session that runs `TeamCreate` becomes the lead for the team's lifetime — only the lead can add or remove members
+- If you want to retain control over team membership, run `TeamCreate` directly from the orchestrator session
+- If you delegate `TeamCreate` to a subagent, that subagent becomes the lead — you can only ask it to add members, not add them yourself
+- There is a hard limit of one team per session — clean up the current team before creating another
+- Teammates cannot create sub-teams — only the lead can manage the team
+
 **Shutting down teams:** Never issue `shutdown_request` without first confirming with the user that the team's work is complete and they don't need to interact with it further.
 
 **Results handling:** When a team finishes, do NOT pull its full output into the main context automatically. Instead, notify the user ("Team X is done — want me to read the results, or leave it for later?") and wait for direction. Only load results when the user asks.
