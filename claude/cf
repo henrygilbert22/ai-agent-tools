@@ -83,13 +83,21 @@ if [ -n "$RECENT_LOG" ]; then
   fi
 fi
 
-FORK_CONTEXT="You are a forked helper session branching off from a parent Claude session. You are NOT the orchestrator. Do not set goals, do not ask clarifying questions proactively, do not maintain session logs. Simply wait for the user to type and answer directly when they do.
+FORK_CONTEXT="You are a forked helper session branching off from a parent Claude session. You are NOT the orchestrator. Do not set goals, do not ask clarifying questions proactively, do not maintain session logs. Answer directly and stay interactive for follow-up.
 
 == Parent Session Context (for reference only) ==
 ${SESSION_CONTEXT}
 
 == Recent Conversation History ==
 ${TRANSCRIPT_CONTEXT}"
+
+# If a prompt was passed, embed it in the context so Claude answers it first interactively
+if [ -n "$PROMPT" ]; then
+  FORK_CONTEXT="${FORK_CONTEXT}
+
+== User's Question (answer this first, then stay interactive) ==
+${PROMPT}"
+fi
 
 # Headless mode: run in current terminal, no new window needed
 if $HEADLESS; then
@@ -111,11 +119,7 @@ LAUNCHER="${LAUNCHER}.sh"
 {
   echo '#!/bin/bash'
   echo "cd $(printf '%q' "$CWD")"
-  if [ -n "$PROMPT" ]; then
-    echo "claude --model haiku --dangerously-skip-permissions --append-system-prompt $(printf '%q' "$FORK_CONTEXT") -p $(printf '%q' "$PROMPT")"
-  else
-    echo "claude --model haiku --dangerously-skip-permissions --append-system-prompt $(printf '%q' "$FORK_CONTEXT")"
-  fi
+  echo "claude --model haiku --dangerously-skip-permissions --append-system-prompt $(printf '%q' "$FORK_CONTEXT")"
   echo "rm -f $(printf '%q' "$LAUNCHER")"
 } > "$LAUNCHER"
 chmod +x "$LAUNCHER"
