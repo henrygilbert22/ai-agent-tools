@@ -83,12 +83,12 @@ if [ -n "$RECENT_LOG" ]; then
   fi
 fi
 
-FORK_CONTEXT="You are branching off from a parent Claude session. You have your own independent context — the parent session continues separately.
+FORK_CONTEXT="You are a forked helper session branching off from a parent Claude session. You are NOT the orchestrator. Do not set goals, do not ask clarifying questions proactively, do not maintain session logs. Simply wait for the user to type and answer directly when they do.
 
-== Parent Session Context ==
+== Parent Session Context (for reference only) ==
 ${SESSION_CONTEXT}
 
-== Recent Conversation History (last ~10 turns) ==
+== Recent Conversation History ==
 ${TRANSCRIPT_CONTEXT}"
 
 # Headless mode: run in current terminal, no new window needed
