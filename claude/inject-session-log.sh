@@ -10,11 +10,101 @@ HOOK_INPUT=$(cat 2>/dev/null || echo "{}")
 # Block cf fork commands from reaching Claude — launch cf as side effect
 PROMPT=$(echo "$HOOK_INPUT" | jq -r '.prompt // empty' 2>/dev/null || true)
 if [[ "$PROMPT" =~ ^cf[[:space:]] ]] || [[ "$PROMPT" =~ ^!cf[[:space:]] ]]; then
-    # Strip leading !
     CMD="${PROMPT#!}"
     bash -c "$CMD" &>/dev/null &
     jq -n '{"decision":"block","reason":"cf fork launched"}'
     exit 0
+fi
+
+# Todo commands — handled silently, Claude never sees them
+SESSION_ID_FOR_TODOS=$(echo "$HOOK_INPUT" | jq -r '.session_id // empty' 2>/dev/null || true)
+TODOS_FILE="$HOME/.claude/session-logs/${SESSION_ID_FOR_TODOS}.todos.json"
+
+_todos_init() {
+    if [ ! -f "$TODOS_FILE" ]; then
+        echo '{"next_id":1,"active":[],"completed":[],"cancelled":[]}' > "$TODOS_FILE"
+    fi
+}
+
+_todos_block() {
+    jq -n --arg msg "$1" '{"decision":"block","reason":$msg}'
+    exit 0
+}
+
+# todo-add 'name' or todo-add 'name' 'description'
+if [[ "$PROMPT" =~ ^todo-add[[:space:]]+(.*) ]]; then
+    _todos_init
+    REST="${BASH_REMATCH[1]}"
+    # Parse: first quoted-or-unquoted token = name, remainder = description
+    NAME=$(echo "$REST" | sed "s/^['\"]//; s/['\"].*$//" | awk '{print $0}' | head -1)
+    # Simpler: just treat the whole thing as the name
+    NAME="${REST#\'}" ; NAME="${NAME%\'}" ; NAME="${NAME#\"}" ; NAME="${NAME%\"}"
+    NOW=$(date -u '+%Y-%m-%d %H:%M UTC')
+    NEXT_ID=$(jq '.next_id' "$TODOS_FILE")
+    jq --arg name "$NAME" --arg ts "$NOW" --argjson id "$NEXT_ID" \
+        '.active += [{"id":$id,"name":$name,"created":$ts}] | .next_id += 1' \
+        "$TODOS_FILE" > "${TODOS_FILE}.tmp" && mv "${TODOS_FILE}.tmp" "$TODOS_FILE"
+    _todos_block "✓ Added [#${NEXT_ID}]: $NAME"
+fi
+
+# todo-list
+if [[ "$PROMPT" == "todo-list" ]]; then
+    _todos_init
+    ACTIVE_COUNT=$(jq '.active | length' "$TODOS_FILE")
+    if [ "$ACTIVE_COUNT" -eq 0 ]; then
+        _todos_block "No pending todos."
+    fi
+    MSG=$(jq -r '
+        "=== Todos ===\nActive:",
+        (.active[] | "  [#\(.id)] \(.name)  (\(.created))"),
+        if (.completed | length) > 0 then "\nCompleted:", (.completed[] | "  [#\(.id)] \(.name)") else "" end,
+        if (.cancelled | length) > 0 then "\nCancelled:", (.cancelled[] | "  [#\(.id)] \(.name)") else "" end
+    ' "$TODOS_FILE" | sed '/^$/d')
+    _todos_block "$MSG"
+fi
+
+# todo-done <id>
+if [[ "$PROMPT" =~ ^todo-done[[:space:]]+([0-9]+) ]]; then
+    _todos_init
+    ID="${BASH_REMATCH[1]}"
+    NOW=$(date -u '+%Y-%m-%d %H:%M UTC')
+    NAME=$(jq -r --argjson id "$ID" '.active[] | select(.id==$id) | .name' "$TODOS_FILE")
+    if [ -z "$NAME" ]; then _todos_block "No active todo with id #${ID}."; fi
+    jq --argjson id "$ID" --arg ts "$NOW" \
+        '(.active[] | select(.id==$id)) as $t |
+         .completed += [$t + {"completed":$ts}] |
+         .active = [.active[] | select(.id!=$id)]' \
+        "$TODOS_FILE" > "${TODOS_FILE}.tmp" && mv "${TODOS_FILE}.tmp" "$TODOS_FILE"
+    _todos_block "✓ Done [#${ID}]: $NAME"
+fi
+
+# todo-cancel <id>
+if [[ "$PROMPT" =~ ^todo-cancel[[:space:]]+([0-9]+) ]]; then
+    _todos_init
+    ID="${BASH_REMATCH[1]}"
+    NOW=$(date -u '+%Y-%m-%d %H:%M UTC')
+    NAME=$(jq -r --argjson id "$ID" '.active[] | select(.id==$id) | .name' "$TODOS_FILE")
+    if [ -z "$NAME" ]; then _todos_block "No active todo with id #${ID}."; fi
+    jq --argjson id "$ID" --arg ts "$NOW" \
+        '(.active[] | select(.id==$id)) as $t |
+         .cancelled += [$t + {"cancelled":$ts}] |
+         .active = [.active[] | select(.id!=$id)]' \
+        "$TODOS_FILE" > "${TODOS_FILE}.tmp" && mv "${TODOS_FILE}.tmp" "$TODOS_FILE"
+    _todos_block "✗ Cancelled [#${ID}]: $NAME"
+fi
+
+# todo-delete <id>
+if [[ "$PROMPT" =~ ^todo-delete[[:space:]]+([0-9]+) ]]; then
+    _todos_init
+    ID="${BASH_REMATCH[1]}"
+    NAME=$(jq -r --argjson id "$ID" '(.active[],.completed[],.cancelled[]) | select(.id==$id) | .name' "$TODOS_FILE" | head -1)
+    if [ -z "$NAME" ]; then _todos_block "No todo with id #${ID}."; fi
+    jq --argjson id "$ID" \
+        '.active = [.active[] | select(.id!=$id)] |
+         .completed = [.completed[] | select(.id!=$id)] |
+         .cancelled = [.cancelled[] | select(.id!=$id)]' \
+        "$TODOS_FILE" > "${TODOS_FILE}.tmp" && mv "${TODOS_FILE}.tmp" "$TODOS_FILE"
+    _todos_block "Deleted [#${ID}]: $NAME"
 fi
 
 # Always derive session log from session_id — env var is collision-prone across instances
