@@ -34,7 +34,7 @@ If any of these are needed → spawn a subagent or team.
 
 Use for: single file reads, status checks, running a command, searching for something, any task that returns a result in one pass.
 
-**Use an agent team member instead of a subagent for any multi-step sequential task** — i.e. anything with dependent phases, pipeline stages, or steps that must complete in order before the next begins. If a task involves running something, waiting for it, then acting on the result, that's a team member, not a subagent.
+For complex multi-step sequential work (dependent phases, pipelines, steps that must complete in order), use a background `Agent` with a well-scoped prompt — it can handle the full sequence internally. This is still a **subagent**, not a team.
 
 - Always `run_in_background: true`
 
@@ -46,9 +46,14 @@ Use for: single file reads, status checks, running a command, searching for some
 
 ---
 
-## Agent Team Rules (multi-step or ambiguous tasks)
+## Agent Team Rules
 
-Use for: "why isn't X working", "explore then fix", "review and propose changes", anything requiring back-and-forth or parallelization.
+**Use `TeamCreate` (not the `Agent` tool) when:**
+- The user explicitly says "use a team", "use a team member", or similar — always honour this literally
+- The task requires persistent back-and-forth: the orchestrator needs to send follow-up instructions to a member mid-task
+- Parallelization across multiple coordinated workers is genuinely needed
+
+For everything else — even complex sequential pipelines — use a background `Agent` (subagent). Do NOT call subagents "team members."
 
 - Can be 1 member or many depending on how work can be parallelized
 
