@@ -107,6 +107,25 @@ function summarizeText(value = '') {
   return firstSentence.slice(0, 220);
 }
 
+function isStaleStreamingNode(node) {
+  if (!node || node.status !== 'streaming') return false;
+  const createdAt = new Date(node.createdAt).getTime();
+  if (!Number.isFinite(createdAt)) return false;
+  return Date.now() - createdAt > 20_000;
+}
+
+async function cleanupStaleStreamingMessages(chat) {
+  if (!chat) return;
+  const staleNodes = Object.values(chat.nodes || {}).filter((node) => node.role === 'assistant' && isStaleStreamingNode(node));
+  for (const node of staleNodes) {
+    await patchChatMessage(node.id, {
+      status: 'done',
+      displayMarkdown: node.displayMarkdown || '_This turn did not complete. Branch from the user turn above to retry._',
+      spokenSummary: node.spokenSummary || '',
+    });
+  }
+}
+
 function currentNodePath(chat = state.currentChat, nodeId = state.selectedNodeId || state.currentChat?.activeNodeId) {
   if (!chat || !nodeId || !chat.nodes[nodeId]) return [];
   const path = [];
@@ -139,6 +158,7 @@ async function loadChat(chatId) {
   state.currentChat = chat;
   state.selectedChatId = chat.id;
   state.selectedNodeId = chat.activeNodeId;
+  await cleanupStaleStreamingMessages(chat);
   await persistUiState();
 }
 
@@ -168,8 +188,10 @@ function renderShell() {
   const tmuxCount = state.bootstrap?.sessions?.tmux?.length || 0;
   const claudeCount = state.bootstrap?.sessions?.claude?.length || 0;
   const attentionCount = state.bootstrap?.processes?.attention?.length || 0;
-  dom.heroTitle.textContent = `${tmuxCount} tmux sessions, ${claudeCount} Claude sessions, ${attentionCount} things to watch`;
-  dom.heroSubtitle.textContent = 'Use the chat to reason about the machine, then jump straight into sessions, processes, files, and diffs.';
+  dom.heroTitle.textContent = `${tmuxCount} tmux sessions, ${claudeCount} Claude sessions`;
+  dom.heroSubtitle.textContent = attentionCount
+    ? `${attentionCount} items need attention. Use chat for orchestration, then inspect sessions, processes, files, and diffs directly.`
+    : 'Use chat for orchestration, then inspect sessions, processes, files, and diffs directly.';
   dom.heroMetrics.innerHTML = '';
 
   const metricData = [
@@ -353,9 +375,9 @@ function renderControl() {
 
 function renderQuickActions() {
   const actions = [
-    { label: 'Summarize eval-harness', prompt: 'Summarize the eval-harness tmux session and tell me if anything is blocked.' },
-    { label: 'Scan active processes', prompt: 'Scan the current processes and tell me what needs attention first.' },
-    { label: 'Resume latest Claude work', prompt: 'Read the latest Claude session log and summarize what the active engineers are doing.' },
+    { label: 'Inspect eval-harness', prompt: 'Inspect the eval-harness tmux session. Tell me only what you directly observe and what I should check next.' },
+    { label: 'Inspect active processes', prompt: 'Inspect the current processes. Tell me which ones are active, which look stuck, and what I should verify next.' },
+    { label: 'Inspect latest Claude log', prompt: 'Inspect the latest Claude session log and tell me what is actually in progress right now.' },
   ];
   dom.quickActions.innerHTML = '';
   for (const action of actions) {
