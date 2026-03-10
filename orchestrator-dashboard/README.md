@@ -29,6 +29,7 @@ From the repo root:
 cp orchestrator-dashboard/.env.example orchestrator-dashboard/.env
 $EDITOR orchestrator-dashboard/.env
 ./start-orchestrator-dashboard.sh
+./status-orchestrator-dashboard.sh
 ```
 
 Then open the printed URL. On this machine, the preferred path is:
@@ -58,6 +59,22 @@ TAILSCALE_DOMAIN=
 ```
 
 If `TAILSCALE_DOMAIN` is empty, the start script will try to detect it automatically from `tailscale status --json`.
+
+## Service Commands
+
+The repo-level wrappers run the dashboard inside its own dedicated tmux session by default:
+
+```bash
+./start-orchestrator-dashboard.sh
+./status-orchestrator-dashboard.sh
+./stop-orchestrator-dashboard.sh
+```
+
+If you want to run it directly in the current shell for debugging:
+
+```bash
+./start-orchestrator-dashboard.sh --foreground
+```
 
 ## Project Layout
 

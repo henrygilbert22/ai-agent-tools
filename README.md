@@ -32,9 +32,18 @@ Start it with:
 cp orchestrator-dashboard/.env.example orchestrator-dashboard/.env
 $EDITOR orchestrator-dashboard/.env
 ./start-orchestrator-dashboard.sh
+./status-orchestrator-dashboard.sh
 ```
 
 Then open the printed URL. On Tailscale-enabled machines this is intended to be your `https://<machine>.ts.net:9000` URL so phone access and audio work properly.
+
+Operational commands:
+
+```bash
+./start-orchestrator-dashboard.sh
+./stop-orchestrator-dashboard.sh
+./status-orchestrator-dashboard.sh
+```
 
 ## Repo Layout
 
@@ -42,4 +51,6 @@ Then open the printed URL. On Tailscale-enabled machines this is intended to be 
 claude/                  Claude Code session management system
 orchestrator-dashboard/  Local orchestration and management dashboard
 start-orchestrator-dashboard.sh
+stop-orchestrator-dashboard.sh
+status-orchestrator-dashboard.sh
 ```
