@@ -1,0 +1,584 @@
+:root {
+  --bg: #08111f;
+  --bg-glow: radial-gradient(circle at top, rgba(57, 255, 20, 0.16), transparent 34%), radial-gradient(circle at bottom right, rgba(0, 209, 255, 0.12), transparent 28%), #08111f;
+  --panel: rgba(10, 19, 35, 0.86);
+  --panel-strong: rgba(12, 24, 44, 0.96);
+  --panel-soft: rgba(21, 34, 59, 0.72);
+  --border: rgba(178, 225, 255, 0.12);
+  --text: #eef6ff;
+  --muted: #8fa8c2;
+  --lime: #b7ff65;
+  --aqua: #55d6ff;
+  --blue: #5198ff;
+  --red: #ff6c75;
+  --amber: #ffbe5c;
+  --shadow: 0 24px 70px rgba(0, 0, 0, 0.34);
+  --radius-lg: 24px;
+  --radius-md: 18px;
+  --radius-sm: 12px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg-glow);
+  color: var(--text);
+  font-family: 'Space Grotesk', system-ui, sans-serif;
+  overflow: hidden;
+}
+
+button,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+a {
+  color: var(--aqua);
+}
+
+pre,
+code {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+#app {
+  height: 100dvh;
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 18px 16px calc(96px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.topbar,
+.hero,
+.status-strip,
+.panel,
+.composer,
+.tabbar,
+.drawer-sheet {
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.eyebrow,
+.hero-kicker,
+.panel-kicker {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.topbar h1,
+.hero h2,
+.panel-header h3,
+.drawer-header h3 {
+  margin: 0.2rem 0 0;
+}
+
+.topbar h1 {
+  font-size: 1.6rem;
+}
+
+.hero {
+  border-radius: var(--radius-lg);
+  background: linear-gradient(145deg, rgba(18, 30, 53, 0.98), rgba(10, 17, 31, 0.92));
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  padding: 18px;
+  display: grid;
+  gap: 16px;
+}
+
+.hero-copy h2 {
+  font-size: 1.4rem;
+}
+
+.hero-copy p:last-child {
+  margin-top: 0.6rem;
+  color: var(--muted);
+  max-width: 44rem;
+}
+
+.hero-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.metric-card,
+.status-card,
+.quick-action,
+.tmux-card,
+.claude-card,
+.process-card,
+.attention-card,
+.message-card,
+.tree-node,
+.chip,
+.map-summary {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--panel);
+}
+
+.metric-card,
+.status-card,
+.quick-action,
+.attention-card,
+.map-summary {
+  padding: 14px;
+}
+
+.metric-card .value,
+.status-card .value {
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+
+.metric-card .label,
+.status-card .label,
+.mini-label {
+  margin-top: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.status-strip {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.status-card {
+  min-width: 170px;
+}
+
+.main-shell {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.panel {
+  display: none;
+  height: 100%;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  background: var(--panel-strong);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+
+.panel.visible {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.panel-header,
+.subsection-header,
+.composer-topline,
+.composer-actions,
+.topbar-actions,
+.panel-actions,
+.tree-node-header,
+.message-meta,
+.message-actions,
+.tmux-card-header,
+.process-header,
+.drawer-header,
+.connection-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.panel-actions,
+.topbar-actions,
+.message-actions,
+.connection-row {
+  flex-wrap: wrap;
+}
+
+.chat-feed,
+.stack,
+.branch-tree,
+.drawer-body {
+  min-height: 0;
+  overflow: auto;
+}
+
+.chat-feed,
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.chat-feed {
+  padding-right: 4px;
+}
+
+.message-card {
+  padding: 14px;
+  background: linear-gradient(180deg, rgba(16, 28, 50, 0.96), rgba(11, 19, 37, 0.9));
+}
+
+.message-card.system-card {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.message-card.user {
+  border-color: rgba(81, 152, 255, 0.36);
+  background: linear-gradient(180deg, rgba(21, 51, 97, 0.9), rgba(12, 30, 60, 0.96));
+}
+
+.message-card.assistant {
+  border-color: rgba(85, 214, 255, 0.18);
+}
+
+.message-card .role {
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.message-card .spoken-summary {
+  margin: 0.7rem 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(183, 255, 101, 0.08);
+  color: #e7ffd2;
+  border: 1px solid rgba(183, 255, 101, 0.12);
+}
+
+.message-card .body {
+  color: var(--text);
+  overflow: hidden;
+}
+
+.message-card .body.collapsed {
+  max-height: 190px;
+  mask-image: linear-gradient(180deg, #000 55%, transparent);
+}
+
+.message-card .body h1,
+.message-card .body h2,
+.message-card .body h3 {
+  margin: 1rem 0 0.35rem;
+}
+
+.message-card .body p,
+.message-card .body ul,
+.message-card .body ol,
+.message-card .body pre,
+.message-card .body table,
+.message-card .body blockquote {
+  margin: 0.45rem 0 0.9rem;
+}
+
+.message-card .body pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  background: rgba(4, 10, 19, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.message-card .body table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.message-card .body th,
+.message-card .body td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.message-card .body .mermaid {
+  overflow-x: auto;
+}
+
+.artifact-row,
+.breadcrumbs,
+.tree-node-children,
+.tmux-actions,
+.process-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.breadcrumbs .chip,
+.artifact-row .chip,
+.tmux-actions .chip,
+.process-actions .chip {
+  padding: 8px 11px;
+  font-size: 0.85rem;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.breadcrumbs .chip.active {
+  border-color: rgba(183, 255, 101, 0.32);
+  color: var(--lime);
+}
+
+.ghost-btn,
+.pill-btn,
+.mode-btn,
+.tab,
+.chip {
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 9px 12px;
+}
+
+.accent-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 10px 16px;
+  background: linear-gradient(135deg, var(--lime), #7ae2ff);
+  color: #04111b;
+  font-weight: 700;
+  box-shadow: 0 14px 30px rgba(122, 226, 255, 0.18);
+}
+
+.mode-switch {
+  display: flex;
+  gap: 6px;
+}
+
+.mode-btn.active,
+.tab.active,
+.pill-btn.active {
+  border-color: rgba(183, 255, 101, 0.42);
+  color: var(--lime);
+}
+
+.connection-pill {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.connection-pill.connected {
+  color: var(--lime);
+}
+
+.connection-pill.connecting {
+  color: var(--amber);
+}
+
+.connection-pill.error {
+  color: var(--red);
+}
+
+.composer {
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  background: rgba(5, 14, 26, 0.92);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.composer textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: rgba(7, 14, 24, 0.92);
+  color: var(--text);
+  resize: none;
+  padding: 14px;
+  min-height: 78px;
+  outline: none;
+}
+
+.composer textarea:focus {
+  border-color: rgba(85, 214, 255, 0.35);
+  box-shadow: 0 0 0 1px rgba(85, 214, 255, 0.18);
+}
+
+.tabbar {
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  width: min(94vw, 560px);
+  padding: 10px;
+  background: rgba(8, 16, 30, 0.92);
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+
+.tab {
+  padding: 12px 10px;
+}
+
+.drawer {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(5, 10, 18, 0.68);
+  z-index: 15;
+}
+
+.drawer.open {
+  display: flex;
+}
+
+.drawer-sheet {
+  width: min(100%, 980px);
+  max-height: 88vh;
+  padding: 18px;
+  border-radius: 28px 28px 0 0;
+  background: linear-gradient(180deg, rgba(7, 14, 25, 0.98), rgba(9, 17, 31, 0.95));
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+
+.drawer-body {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.drawer-body pre {
+  margin: 0;
+  padding: 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(4, 8, 16, 0.94);
+  color: #dbecff;
+  overflow: auto;
+}
+
+.session-log {
+  margin: 0;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  background: rgba(4, 8, 16, 0.94);
+  color: #b7c6d8;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 0.78rem;
+  max-height: 280px;
+  overflow: auto;
+}
+
+.session-log.collapsed {
+  max-height: 110px;
+}
+
+.tmux-card,
+.claude-card,
+.process-card,
+.tree-node {
+  padding: 14px;
+}
+
+.tmux-card-header h4,
+.process-header h4,
+.tree-node h4 {
+  margin: 0;
+}
+
+.tmux-preview,
+.muted {
+  color: var(--muted);
+}
+
+.tmux-preview,
+.map-summary pre {
+  font-size: 0.82rem;
+  white-space: pre-wrap;
+}
+
+.tree-node {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tree-node.active {
+  border-color: rgba(183, 255, 101, 0.3);
+}
+
+.tree-node-children {
+  padding-left: 12px;
+}
+
+.hidden {
+  display: none !important;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+}
+
+@media (min-width: 860px) {
+  #app {
+    padding-bottom: 24px;
+  }
+
+  .hero {
+    grid-template-columns: 1.4fr 1fr;
+    align-items: end;
+  }
+
+  .main-shell {
+    min-height: 0;
+  }
+
+  .tabbar {
+    position: static;
+    transform: none;
+    width: 100%;
+  }
+}

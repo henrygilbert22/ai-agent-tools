@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Orchestrator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/app/styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Henry's cockpit</p>
+        <h1>Orchestrator</h1>
+      </div>
+      <div class="topbar-actions">
+        <button id="chat-picker-btn" class="ghost-btn">Chats</button>
+        <button id="drawer-close-btn" class="ghost-btn hidden">Close</button>
+      </div>
+    </header>
+
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="hero-kicker">Realtime orchestration dashboard</p>
+        <h2 id="hero-title">Loading workspace...</h2>
+        <p id="hero-subtitle">Bootstrapping sessions, processes, and chat history.</p>
+      </div>
+      <div class="hero-metrics" id="hero-metrics"></div>
+    </section>
+
+    <section class="status-strip" id="status-strip"></section>
+
+    <main class="main-shell">
+      <section class="panel visible" data-panel="chat">
+        <div class="panel-header">
+          <div>
+            <p class="panel-kicker">Conversation</p>
+            <h3 id="chat-title">Main cockpit</h3>
+          </div>
+          <div class="panel-actions">
+            <button id="new-chat-btn" class="pill-btn">New chat</button>
+            <button id="branch-btn" class="pill-btn">Branch here</button>
+          </div>
+        </div>
+
+        <div id="chat-breadcrumbs" class="breadcrumbs"></div>
+
+        <div id="chat-feed" class="chat-feed">
+          <div class="message-card system-card">
+            <p>Connect in text or voice mode to start orchestrating your machine.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" data-panel="control">
+        <div class="panel-header">
+          <div>
+            <p class="panel-kicker">Direct control</p>
+            <h3>Sessions and quick actions</h3>
+          </div>
+        </div>
+        <div class="stack" id="quick-actions"></div>
+        <div class="stack" id="tmux-list"></div>
+        <div class="stack" id="claude-list"></div>
+        <div class="panel-subsection">
+          <div class="subsection-header">
+            <h4>Live session log</h4>
+            <button id="toggle-log-btn" class="pill-btn">Expand</button>
+          </div>
+          <pre id="session-log" class="session-log collapsed">[Waiting for session log]</pre>
+        </div>
+      </section>
+
+      <section class="panel" data-panel="processes">
+        <div class="panel-header">
+          <div>
+            <p class="panel-kicker">Machine state</p>
+            <h3>Processes and attention queue</h3>
+          </div>
+        </div>
+        <div id="attention-queue" class="stack"></div>
+        <div id="process-groups" class="stack"></div>
+      </section>
+
+      <section class="panel" data-panel="map">
+        <div class="panel-header">
+          <div>
+            <p class="panel-kicker">Conversation graph</p>
+            <h3>Branches and artifacts</h3>
+          </div>
+        </div>
+        <div id="map-summary" class="map-summary"></div>
+        <div id="branch-tree" class="branch-tree"></div>
+      </section>
+    </main>
+
+    <aside id="drawer" class="drawer">
+      <div class="drawer-sheet">
+        <div class="drawer-header">
+          <div>
+            <p class="panel-kicker" id="drawer-kicker">Details</p>
+            <h3 id="drawer-title">Inspector</h3>
+          </div>
+          <button id="drawer-dismiss-btn" class="ghost-btn">Done</button>
+        </div>
+        <div id="drawer-body" class="drawer-body"></div>
+      </div>
+    </aside>
+
+    <section class="composer">
+      <div class="composer-topline">
+        <div class="mode-switch">
+          <button id="mode-voice" class="mode-btn">Voice</button>
+          <button id="mode-text" class="mode-btn active">Text</button>
+        </div>
+        <div class="connection-row">
+          <span id="connection-pill" class="connection-pill">Disconnected</span>
+          <button id="connect-btn" class="accent-btn">Connect</button>
+        </div>
+      </div>
+      <textarea id="composer-input" rows="2" placeholder="Ask about a tmux session, request a diff, or direct the agent..."></textarea>
+      <div class="composer-actions">
+        <button id="speak-toggle-btn" class="ghost-btn">Speak text replies</button>
+        <button id="send-btn" class="accent-btn">Send</button>
+      </div>
+    </section>
+
+    <nav class="tabbar">
+      <button class="tab active" data-tab="chat">Chat</button>
+      <button class="tab" data-tab="control">Control</button>
+      <button class="tab" data-tab="processes">Processes</button>
+      <button class="tab" data-tab="map">Map</button>
+    </nav>
+  </div>
+
+  <audio id="remote-audio" autoplay playsinline></audio>
+  <script type="module" src="/app/main.js"></script>
+</body>
+</html>

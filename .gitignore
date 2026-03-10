@@ -5,3 +5,10 @@ claude/session-logs/
 # Temp files
 *.lock
 *.tmp
+
+# Orchestrator dashboard local state
+orchestrator-dashboard/.env
+orchestrator-dashboard/node_modules/
+orchestrator-dashboard/certs/
+orchestrator-dashboard/data/chats/
+orchestrator-dashboard/data/dashboard-state.json
