@@ -486,6 +486,29 @@ function extractResponsesText(data) {
   return chunks.join('\n').trim();
 }
 
+function extractFunctionCalls(data) {
+  return (data.output || []).filter((item) => item.type === 'function_call' && item.name);
+}
+
+async function runBashToolCall(call) {
+  let args = {};
+  try {
+    args = JSON.parse(call.arguments || '{}');
+  } catch (error) {
+    return `Invalid JSON arguments: ${error.message}`;
+  }
+  const command = String(args.command || '').trim();
+  if (!command) {
+    return 'Error: command is required';
+  }
+  const result = await runCommand(command, { timeout: 30000 });
+  const output = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
+  if (!result.ok && !output) {
+    return `Error: ${result.error?.message || 'Command failed'}`;
+  }
+  return output || '[no output]';
+}
+
 function findLatestSessionLog() {
   const logDir = '/home/henry/.claude/session-logs';
   try {
@@ -737,65 +760,95 @@ app.post('/api/text-reply', async (req, res) => {
     if (!prompt) {
       return res.status(400).json({ error: 'prompt is required' });
     }
-    const contextSummary = req.body?.contextSummary || '';
     const voiceSummary = req.body?.voiceSummary || '';
-    const response = await fetch('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: TEXT_MODEL,
-        input: [
+    let responseId = null;
+    let input = [
+      {
+        role: 'system',
+        content: [
           {
-            role: 'system',
-            content: [
-              {
-                type: 'input_text',
-                text: `${AI_SYSTEM_PROMPT}
+            type: 'input_text',
+            text: `${AI_SYSTEM_PROMPT}
 
-You are generating the on-screen rich markdown answer for the orchestration dashboard.
-- Use markdown intentionally.
-- Prefer concrete action-oriented summaries.
-- Use tables, checklists, and mermaid when useful.
-- Do not be terse unless the prompt asks for it.
-- If a voice summary is provided, expand it into a more complete visible answer rather than repeating it verbatim.`,
-              },
-            ],
-          },
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'input_text',
-                text: `User prompt:
-${prompt}
-
-Known machine context:
-${contextSummary || 'No extra machine context provided.'}
-
-Audio/voice summary so far:
-${voiceSummary || 'None.'}`,
-              },
-            ],
+You are the on-screen orchestration model for the dashboard.
+- Use markdown intentionally, but keep the view clean and workmanlike.
+- Do not invent current machine state.
+- If the user is asking about the live machine, inspect it with the run_bash tool before making claims.
+- Prefer direct observations, concise plans, and concrete next actions over polished summaries.
+- Only use mermaid when the user explicitly wants a diagram or when it meaningfully clarifies flow.
+- If a voice summary is provided, treat it as optional context, not ground truth.`,
           },
         ],
-      }),
-    });
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'input_text',
+            text: voiceSummary
+              ? `User prompt:\n${prompt}\n\nVoice summary context:\n${voiceSummary}`
+              : prompt,
+          },
+        ],
+      },
+    ];
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Text reply error:', response.status, errorText);
-      return res.status(response.status).json({ error: errorText });
+    for (let step = 0; step < 8; step += 1) {
+      const response = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: TEXT_MODEL,
+          previous_response_id: responseId || undefined,
+          tools: [
+            {
+              type: 'function',
+              name: 'run_bash',
+              description: 'Run a bash command on the local Linux machine to inspect tmux, processes, files, logs, or git state.',
+              parameters: {
+                type: 'object',
+                properties: {
+                  command: {
+                    type: 'string',
+                    description: 'Shell command to run',
+                  },
+                },
+                required: ['command'],
+              },
+            },
+          ],
+          input,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Text reply error:', response.status, errorText);
+        return res.status(response.status).json({ error: errorText });
+      }
+
+      const data = await response.json();
+      responseId = data.id;
+      const functionCalls = extractFunctionCalls(data);
+      if (!functionCalls.length) {
+        return res.json({
+          model: TEXT_MODEL,
+          markdown: extractResponsesText(data),
+          raw: data,
+        });
+      }
+
+      input = await Promise.all(functionCalls.map(async (call) => ({
+        type: 'function_call_output',
+        call_id: call.call_id,
+        output: await runBashToolCall(call),
+      })));
     }
 
-    const data = await response.json();
-    res.json({
-      model: TEXT_MODEL,
-      markdown: extractResponsesText(data),
-      raw: data,
-    });
+    res.status(500).json({ error: 'Text reply exceeded tool loop limit' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

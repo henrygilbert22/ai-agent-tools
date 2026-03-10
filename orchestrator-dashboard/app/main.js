@@ -777,39 +777,17 @@ function buildBranchContext(parentId) {
   return nodes.map((node) => `${node.role.toUpperCase()}: ${plainText(node.displayMarkdown || node.text || '').slice(0, 360)}`).join('\n\n');
 }
 
-function buildContextSummary() {
-  const sections = [];
-
-  const attention = state.bootstrap?.processes?.attention || [];
-  if (attention.length) {
-    sections.push(`Attention queue:\n${attention.slice(0, 5).map((item) => `- ${item.reason}: ${item.label}`).join('\n')}`);
-  }
-
-  const tmuxSessions = state.bootstrap?.sessions?.tmux || [];
-  if (tmuxSessions.length) {
-    sections.push(`Tmux sessions:\n${tmuxSessions.slice(0, 4).map((session) => `- ${session.name}: ${(session.preview || '[no preview]').slice(0, 240)}`).join('\n')}`);
-  }
-
-  const branchPath = currentNodePath().slice(-6);
-  if (branchPath.length) {
-    sections.push(`Active branch path:\n${branchPath.map((node) => `- ${node.role}: ${plainText(node.displayMarkdown || node.text || '').slice(0, 220)}`).join('\n')}`);
-  }
-
-  return sections.join('\n\n');
-}
-
 async function requestDetailedMarkdown(prompt, assistantNodeId, voiceSummary = '') {
   const response = await fetchJson('/api/text-reply', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       prompt,
-      contextSummary: buildContextSummary(),
       voiceSummary,
     }),
   });
   const displayMarkdown = response.markdown || voiceSummary || '_No response captured._';
-  const spokenSummary = voiceSummary || summarizeText(displayMarkdown);
+  const spokenSummary = voiceSummary || '';
 
   await patchChatMessage(assistantNodeId, {
     displayMarkdown,
