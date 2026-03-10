@@ -34,7 +34,7 @@ $EDITOR orchestrator-dashboard/.env
 ./start-orchestrator-dashboard.sh
 ```
 
-Then open `https://localhost:9000`.
+Then open the printed URL. On Tailscale-enabled machines this is intended to be your `https://<machine>.ts.net:9000` URL so phone access and audio work properly.
 
 ## Repo Layout
 

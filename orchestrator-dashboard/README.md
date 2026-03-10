@@ -1,6 +1,6 @@
 # Orchestrator Dashboard
 
-A local operator console for running an AI-driven development machine. It combines rich chat, tmux control, Claude session visibility, process inspection, artifact previews, and persistent branching chat history in one mobile-friendly dashboard.
+A local operator console for running an AI-driven development machine. It combines rich chat, tmux control, Claude session visibility, process inspection, artifact previews, and persistent branching chat history in one mobile-friendly dashboard. The default startup flow is Tailscale-first so phone access and browser audio work cleanly.
 
 ## What It Does
 
@@ -18,6 +18,7 @@ A local operator console for running an AI-driven development machine. It combin
 - Node.js 20+
 - `tmux`
 - `openssl`
+- `jq`
 - An `OPENAI_API_KEY`
 
 ## Quick Start
@@ -30,13 +31,18 @@ $EDITOR orchestrator-dashboard/.env
 ./start-orchestrator-dashboard.sh
 ```
 
-Then open `https://localhost:9000`.
+Then open the printed URL. On this machine, the preferred path is:
+
+```text
+https://henry-1.taile5ac.ts.net:9000
+```
 
 The first launch will:
 
 1. install npm dependencies if needed
-2. generate local TLS certs under `orchestrator-dashboard/certs/`
-3. create local persistence files under `orchestrator-dashboard/data/`
+2. try to fetch a trusted Tailscale TLS cert for the current device hostname
+3. fall back to a local `localhost` self-signed cert if Tailscale certs are unavailable
+4. create local persistence files under `orchestrator-dashboard/data/`
 
 ## Environment
 
@@ -47,8 +53,11 @@ OPENAI_API_KEY=...
 OPENAI_TEXT_MODEL=gpt-4o-mini
 PORT=9000
 HOST=0.0.0.0
-PUBLIC_URL=https://localhost:9000
+PUBLIC_URL=
+TAILSCALE_DOMAIN=
 ```
+
+If `TAILSCALE_DOMAIN` is empty, the start script will try to detect it automatically from `tailscale status --json`.
 
 ## Project Layout
 
